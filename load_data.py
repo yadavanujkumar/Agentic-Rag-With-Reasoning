@@ -8,8 +8,7 @@ the Agentic GraphRAG system's capabilities.
 import os
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
-from datetime import datetime, timedelta
-import random
+from datetime import datetime
 
 load_dotenv()
 
@@ -22,7 +21,12 @@ class FraudDataLoader:
         self.driver.close()
     
     def clear_database(self):
-        """Clear all existing data"""
+        """
+        Clear all existing data from the database.
+        
+        WARNING: This operation is DESTRUCTIVE and will delete ALL nodes and relationships.
+        Only use this on development/test databases, never on production!
+        """
         with self.driver.session() as session:
             session.run("MATCH (n) DETACH DELETE n")
             print("✓ Database cleared")
@@ -299,33 +303,48 @@ def main():
     try:
         loader = FraudDataLoader(uri, user, password)
         
-        # Clear and load data
-        print("\nClearing existing data...")
-        loader.clear_database()
+        try:
+            # Clear and load data
+            print("\nClearing existing data...")
+            loader.clear_database()
+            
+            print("\nCreating constraints...")
+            loader.create_constraints()
+            
+            print("\nLoading sample data...")
+            loader.load_sample_data()
+            
+            print("\nData loading complete!")
+            loader.print_statistics()
+            
+            print("\n✓ Sample fraud detection data loaded successfully!")
+            print("\nSuspicious patterns in the data:")
+            print("  1. Circular money flow: ACC003 -> ACC004 -> ACC006 -> ACC003")
+            print("  2. Multiple accounts owned by same person (P003)")
+            print("  3. Multiple persons sharing same address (ADDR003)")
+            print("  4. Multiple persons sharing same phone (PH003)")
+            print("  5. High-risk accounts (ACC003, ACC004, ACC006, ACC008)")
+            print("\nYou can now run agent.py to query this data!\n")
         
-        print("\nCreating constraints...")
-        loader.create_constraints()
-        
-        print("\nLoading sample data...")
-        loader.load_sample_data()
-        
-        print("\nData loading complete!")
-        loader.print_statistics()
-        
-        print("\n✓ Sample fraud detection data loaded successfully!")
-        print("\nSuspicious patterns in the data:")
-        print("  1. Circular money flow: ACC003 -> ACC004 -> ACC006 -> ACC003")
-        print("  2. Multiple accounts owned by same person (P003)")
-        print("  3. Multiple persons sharing same address (ADDR003)")
-        print("  4. Multiple persons sharing same phone (PH003)")
-        print("  5. High-risk accounts (ACC003, ACC004, ACC006, ACC008)")
-        print("\nYou can now run agent.py to query this data!\n")
-        
-        loader.close()
+        finally:
+            # Always close the driver
+            loader.close()
     
     except Exception as e:
         print(f"\n✗ Error: {e}")
-        print("\nMake sure Neo4j is running and credentials are correct in .env file")
+        
+        # Provide specific guidance based on error type
+        error_str = str(e).lower()
+        if "authentication" in error_str or "unauthorized" in error_str:
+            print("\nAuthentication failed. Check that:")
+            print("  1. NEO4J_PASSWORD in .env matches your Neo4j password")
+            print("  2. NEO4J_USERNAME is correct (default is 'neo4j')")
+        elif "connection" in error_str or "refused" in error_str:
+            print("\nConnection failed. Make sure:")
+            print("  1. Neo4j is running (check: docker ps)")
+            print("  2. NEO4J_URI in .env is correct (default: bolt://localhost:7687)")
+        else:
+            print("\nMake sure Neo4j is running and credentials are correct in .env file")
 
 
 if __name__ == "__main__":

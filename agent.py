@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.tools import tool
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from neo4j import GraphDatabase
@@ -124,7 +124,7 @@ class Neo4jConnection:
 neo4j_conn = Neo4jConnection(
     uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
     user=os.getenv("NEO4J_USERNAME", "neo4j"),
-    password=os.getenv("NEO4J_PASSWORD", "password")
+    password=os.getenv("NEO4J_PASSWORD", "")
 )
 
 # ============================================================================
@@ -194,16 +194,18 @@ vector_store.add_documents(FRAUD_DOCS)
 @tool
 def search_graph(question: str) -> str:
     """
-    Search the fraud detection knowledge graph using natural language.
+    Search the fraud detection knowledge graph.
     
-    This tool converts your question into a Cypher query and executes it against Neo4j.
-    Use this for relationship-based queries like:
-    - Finding connections between entities
-    - Tracing money flows
-    - Identifying patterns across multiple hops
+    This tool uses pattern matching to convert common fraud detection questions 
+    into Cypher queries for Neo4j. Supported query patterns include:
+    - Finding connections and paths between entities
+    - Detecting circular money flows
+    - Identifying shared infrastructure (addresses, phones)
+    - Analyzing ownership patterns
+    - Finding high-risk accounts
     
     Args:
-        question: Natural language question about the graph
+        question: Question about the graph (e.g., "find circular money flows")
     
     Returns:
         Results from the graph database
@@ -216,10 +218,12 @@ def search_graph(question: str) -> str:
     try:
         # Pattern 1: Find path between two accounts
         if "path" in question_lower or "connection" in question_lower:
-            # Example: Find all paths between accounts
+            # Example: Find paths between accounts (limited to 3 hops for performance)
             cypher = """
-            MATCH path = (a1:Account)-[*1..5]-(a2:Account)
+            MATCH path = (a1:Account)-[*1..3]-(a2:Account)
             WHERE a1.account_id <> a2.account_id
+            WITH a1, a2, path
+            LIMIT 100
             RETURN a1.account_id as source, a2.account_id as target, 
                    length(path) as hops, 
                    [rel in relationships(path) | type(rel)] as relationship_types
@@ -229,10 +233,12 @@ def search_graph(question: str) -> str:
         # Pattern 2: Find circular money flows
         elif "circular" in question_lower or "cycle" in question_lower:
             cypher = """
-            MATCH path = (a:Account)-[:SENT_MONEY*3..5]->(a)
+            MATCH path = (a:Account)-[:SENT_MONEY*3..4]->(a)
+            WITH a, path, relationships(path) as rels
+            LIMIT 10
             RETURN a.account_id as account, 
                    [n in nodes(path) | n.account_id] as cycle_path,
-                   reduce(total = 0, r in relationships(path) | total + r.amount) as total_amount
+                   reduce(total = 0, r in rels | total + r.amount) as total_amount
             LIMIT 5
             """
         
@@ -332,7 +338,7 @@ class AgentState(TypedDict):
     next: str
 
 
-def should_continue(state: AgentState) -> Literal["tools", "end"]:
+def should_continue(state: AgentState) -> Literal["tools", END]:
     """Determine whether to continue or end the agent loop"""
     messages = state["messages"]
     last_message = messages[-1]
@@ -342,7 +348,7 @@ def should_continue(state: AgentState) -> Literal["tools", "end"]:
         return "tools"
     
     # Otherwise, end
-    return "end"
+    return END
 
 
 def call_model(state: AgentState):
@@ -361,7 +367,7 @@ def call_model(state: AgentState):
     llm_with_tools = llm.bind_tools(tools)
     
     # Add system message for ReAct prompting
-    system_message = HumanMessage(content="""You are an expert fraud detection analyst with access to:
+    system_message = SystemMessage(content="""You are an expert fraud detection analyst with access to:
 1. A knowledge graph (use search_graph) - for finding relationships, connections, and patterns
 2. Documentation database (use search_docs) - for fraud detection policies and procedures
 
@@ -408,7 +414,7 @@ def create_agent_graph():
         should_continue,
         {
             "tools": "tools",
-            "end": END
+            END: END
         }
     )
     workflow.add_edge("tools", "agent")
@@ -453,16 +459,16 @@ def run_agent(question: str, verbose: bool = True):
                 print(f"{key}: {value}")
         final_state = state
     
-    # Extract final answer
+    # Extract final answer - get the last AIMessage content
     if final_state:
         for key in final_state:
             if "messages" in final_state[key]:
                 messages = final_state[key]["messages"]
+                # Get last AIMessage that doesn't have tool calls
                 for msg in reversed(messages):
-                    if isinstance(msg, AIMessage) and not hasattr(msg, "tool_calls"):
-                        return msg.content
-                    elif isinstance(msg, AIMessage) and msg.content:
-                        return msg.content
+                    if isinstance(msg, AIMessage):
+                        if not msg.tool_calls and msg.content:
+                            return msg.content
     
     return "No answer generated"
 

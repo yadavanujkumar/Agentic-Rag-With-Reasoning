@@ -353,10 +353,10 @@ It combines:
 ## 📈 Future Enhancements
 
 - [ ] Add LLM-based Cypher query generation (vs. pattern matching)
+- [ ] Add support for multiple LLM providers (Gemini, Claude, Anthropic)
 - [ ] Implement real-time fraud detection alerts
 - [ ] Add visualization dashboard for graph exploration
 - [ ] Integrate with real banking APIs
-- [ ] Add support for multiple LLM providers (Gemini, Claude)
 - [ ] Implement advanced graph algorithms (PageRank, community detection)
 - [ ] Add explainability features for fraud decisions
 

@@ -48,11 +48,20 @@ def main():
         try:
             choice = input(f"\nEnter choice (1-{len(GOLDEN_QUERIES) + 2}): ").strip()
             
-            if not choice or choice == str(len(GOLDEN_QUERIES) + 2):
+            # Handle empty input or explicit exit
+            if not choice:
+                continue
+            
+            if choice == str(len(GOLDEN_QUERIES) + 2):
                 print("\nGoodbye!")
                 break
             
-            choice_num = int(choice)
+            # Convert to integer
+            try:
+                choice_num = int(choice)
+            except ValueError:
+                print(f"Invalid input. Please enter a number between 1 and {len(GOLDEN_QUERIES) + 2}")
+                continue
             
             if 1 <= choice_num <= len(GOLDEN_QUERIES):
                 query = GOLDEN_QUERIES[choice_num - 1]['query']
@@ -81,8 +90,6 @@ def main():
             else:
                 print(f"Invalid choice. Please enter 1-{len(GOLDEN_QUERIES) + 2}")
         
-        except ValueError:
-            print("Invalid input. Please enter a number.")
         except KeyboardInterrupt:
             print("\n\nInterrupted. Goodbye!")
             break
